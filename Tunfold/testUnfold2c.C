@@ -2,7 +2,6 @@
 // DESY, July 2016
 
 //  Version 17.9, example of using the SURE method
-//
 
 #include <iostream>
 #include <map>
@@ -26,31 +25,9 @@
 
 using namespace std;
 
-/*
-  This file is part of TUnfold.
-
-  TUnfold is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  TUnfold is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with TUnfold.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 ///////////////////////////////////////////////////////////////////////
 // 
 // Test program for the classes TUnfoldDensity and TUnfoldBinning
-//
-// A toy test of the TUnfold package
-//
-// This is an example of unfolding a one-dimensional distribution
-//   plus nuisance parameters to control background from fakes
 //
 // The example comprizes several macros
 //   testUnfold2a.C   create root files with TTree objects for
@@ -80,8 +57,22 @@ static void analyzeToy(TH1 const *hist_toy,
 void testUnfold2c()
 {
    //==================================================================  
-   // fill histograms
+   // switch on histogram errors
    TH1::SetDefaultSumw2();
+   TH2::SetDefaultSumw2();
+  
+  //Input Data and MC histogram 
+   TFile *inputData=new TFile("Data2017_GT102_3sigmaBin_16April.root");
+   TFile *inputMC=new TFile("PY8_C5_1523_14PU_GT102X_3sig_16April.root");
+
+  //Unfolder Data and Covarince matrix
+   TFile *outputFile=new TFile("testunfold2c_unfolded.root","recreate");
+   outputFile->cd();
+   TDirectoryFile *inputDir=new TDirectoryFile("input","input");
+   inputDir->cd();
+
+
+
    gStyle->SetOptFit(0);
    gStyle->SetOptStat(0);
    gStyle->SetPadRightMargin(0.06);
@@ -101,40 +92,102 @@ void testUnfold2c()
    gStyle->SetLabelSize(0.05,"xy");
    gStyle->SetLabelOffset(0.012,"xy");
 
-   TFile *inputFile=new TFile("testunfold2b_histograms.root");
 
-   TFile *outputFile=new TFile("testunfold2c_unfolded.root","recreate");
-   outputFile->cd();
-   TDirectoryFile *inputDir=new TDirectoryFile("input","input");
-   inputDir->cd();
+  int const type = 2;         // Jet & Charage particles
+  int const itype[type]={0,1};   //{0}--->Jet ; {1}---> Charged Particles
+  const  char* itypeN[type]={"Jets","Charged Particles"};
+  char histname1[100] ,histname2[100], histname3[100], histname4[100], histname5[100], histname6[100], histname7[100],  histname8[100], histname9[100], histname10[100];
+  char title1[100], title2[100], title3[100], title4[100];
+  const int nHLTmx=8; //HT2 Range 
+  const int njetetamn=1;  //eta value used 2.4
+  double etarange[njetetamn] ={2.4}; //
+  static const int nvar=32;  // Total number of eventshape variables
+  static const int nusedvar = 5;   //Event Shape variables used
+  Int_t var[nusedvar]={3,9,15,18,24};   // Names 3 Thrust , 9 Jet mass , 15 Y23 , 18 Jet Boardening , 24 Total Jet mass
+  static const int nhist=10; //We need 8 But define 10
+  const int njetptmn = nHLTmx;
+  double leadingPtThreshold[njetptmn+1] = {83, 109, 172, 241, 309, 377, 462, 570, 3000.0}; //Fit Value dijet trigger
+  
+  const char* vartitle[nvar]={"Anti-Y_{23,C} ", "Anti-Y_{23,E} ", "Anti-Y_{23,R} ",     
+                              "#tau_{_{#perp}} ", "#tau_{_{#perp} _{   ,E}} ", "#tau_{_{#perp} _{   ,R}} ",
+                              "T_{ m,C} ", "T_{ m,E} ", "T_{ m,R} ",
+                              "#rho_{Tot} ", "#rho_{Tot,E} ", "#rho_{Tot,R} ",
+                              "#rho_{H,C} ", "#rho_{H,E} ", "#rho_{H,R} ",
+                              "Y_{23} ", "Y_{23,E} ", "Y_{23,R} ",
+                              "B_{ T,C} ", "B_{ T,E} ", "B_{ T,R} ",
+                              "B_{ W,C} ", "B_{ W,E} ", "B_{ W,R} ",
+                              "#rho^{T}_{Tot} ", "#rho^{T}_{Tot,E} ", "#rho^{T}_{Tot,R} ",
+                              "#rho^{T}_{H,C} ", "#rho^{T}_{H,E} ", "#rho^{T}_{H,R} ",
+                              "S_{_{#perp} _{   ,C}}", "C-parameter_{C}"};
+  TH1F *PY8_Reco[type][nusedvar][njetptmn];  //Reconstracted MC
+ //TH1F *PY8_Gen[type][nusedvar][njetptmn];   //Generator level MC
+  TH1F *Data_Reco[type][nusedvar][njetptmn];    //Reconstracted Data
+  TH2F *h2dGenDetMC[type][nusedvar][njetptmn];   // MC generator Vs Reco
 
-   // read input histograms
-   //   MC matrix rec vs gen
-   TUnfoldBinning  *binningCoarseGen,*binningFineReco;
-   TH1 *hist_unfoldingRecoFine_data;
-   TH1 *hist_unfoldingRecoFine_MC;
-   TH1 *hist_unfoldingRecoFine_bgr;
-   TH1 *hist_unfoldingGenCoarse_MC;
-   TH2 *hist_migrationCoarseFine_MC;
+   
+//Read the MC and data
+//Reco fine MC
+  for(int ity=0; ity <type; ity++){
+    for(int ivar=0; ivar < nusedvar ; ivar ++){
+      for(int ipt = 0 ; ipt < njetptmn ; ipt++){
+        sprintf(histname1, "analyzeBasicPat/reco_typ_%i_pt%i_eta0_%i", ity, ipt, var[ivar]); //reco_typ_1_pt4_eta0_24
+        //      sprintf(histname2, "analyzeBasicPat/reco_typ_1_pt%i_eta0_%i", ipt, var[ivar]); //reco_typ_1_pt4_eta0_24
+        PY8_Reco[ity][ivar][ipt] = (TH1F*) inputMC->Get(histname1);
+        //      PY8_Reco_Char[ivar][ipt] = (TH1F*) file1->Get(histname2);
+        cout << histname1 << endl;
+      }
+    }
+  }
+
+/*  for(int ity=0; ity <type; ity++){
+    for(int ivar=0; ivar < nusedvar ; ivar ++){
+       for(int ipt = 0 ; ipt < njetptmn ; ipt++){
+          sprintf(histname2, "analyzeBasicPat/reco_typ_%i_pt%i_eta0_%i", ity, ipt, var[ivar]); //reco_typ_1_pt4_eta0_24
+        PY8_Gen[ity][ivar][ipt] = (TH1F*) inputMC->Get(histname2);
+      }
+    }
+  }
+*/
+
+  //copy the data
+  //Reco_fine_Data
+  for(int ity=0; ity <type; ity++){
+    for(int ivar=0; ivar < nusedvar ; ivar ++){
+      for(int ipt = 0 ; ipt < njetptmn ; ipt++){
+         sprintf(histname3, "analyzeBasicPat/reco_typ_%i_pt%i_eta0_%i", ity, ipt, var[ivar]); //reco_typ_1_pt4_eta0_24
+        Data_Reco[ity][ivar][ipt] = (TH1F*) inputData->Get(histname3);
+      }
+    }
+  }
+  //copy the correlation matrix
+  //Reco fine coarse MC
+  for(int ity=0; ity <type; ity++){
+    for(int ivar=0; ivar < nusedvar ; ivar ++){
+      for(int ipt = 0 ; ipt < njetptmn ; ipt++){
+        sprintf(histname4, "analyzeBasicPat/corr_typ_%i_pt%i_eta0_%i", ity, ipt, var[ivar]); //corr_typ_0_pt2_eta0_3
+        h2dGenDetMC[ity][ivar][ipt] = (TH2F*) inputMC->Get(histname4);   //Xgen(coarse) , Yreco(fine)
+      }
+    }
+  }
+
+
+//Define Unfolded Histogram for outputs
+  TH1 *Data_Unfolded[type][nusedvar][njetptmn];
+ // TH1F *Data_Unfolded[type][nusedvar][njetptmn];
+  TH2 *rhoij[type][nusedvar][njetptmn];
+
+  
+
    
    inputFile->GetObject("CoarseGen",binningCoarseGen);
    inputFile->GetObject("FineReco",binningFineReco);
-   inputFile->GetObject("hist_unfoldingRecoFine_data",hist_unfoldingRecoFine_data);
-   inputFile->GetObject("hist_unfoldingRecoFine_MC",hist_unfoldingRecoFine_MC);
-   inputFile->GetObject("hist_unfoldingRecoFine_bgr",hist_unfoldingRecoFine_bgr);
-   inputFile->GetObject("hist_unfoldingGenCoarse_MC",hist_unfoldingGenCoarse_MC);
-   inputFile->GetObject("hist_migrationCoarseFine_MC",hist_migrationCoarseFine_MC);
 
-   binningCoarseGen->Write();
-   binningFineReco->Write();
-   hist_unfoldingRecoFine_data->Write();
-   hist_unfoldingRecoFine_MC->Write();
-   hist_unfoldingGenCoarse_MC->Write();
-   hist_migrationCoarseFine_MC->Write();
 
-   outputFile->cd();
-   TDirectoryFile *tunfoldDir=new TDirectoryFile("tunfold","tunfold");
-   tunfoldDir->cd();
+ for(int ity=0; ity <type; ity++){   //
+    for(int ivar=0; ivar < nusedvar ; ivar ++){
+      for(int ipt = 0 ; ipt < njetptmn ; ipt++){
+
+
 
    //========================================================
    // outer loop: unfold data, then unfold toys from unfolded data
@@ -426,8 +479,9 @@ void testUnfold2c()
                     prof_pull_IterativeFixed,
                     hist_coverage_IterativeFixed,MAXTOY);
       }
-      }
+      }//end of iterative method
       
+   
    }
 
    prof_pull_noRegularisation->Write();
@@ -447,228 +501,8 @@ void testUnfold2c()
    //          (2) Tikhonov SURE scan [SURE,DF,chi**2]
    //          (3) Iterative SURE scan [SURE,DF,deviance]
 
-   TCanvas *canvas1=new TCanvas("compare","",900,300);
-   canvas1->Divide(3,1);
-   canvas1->cd(1);
-   graph_LCurve_TikhonovLCurve->SetTitle
-      (";log_{10}(#chi^{2}_{L});log_{10}(#chi^{2}_{A});");
-   graph_LCurve_TikhonovLCurve->SetLineColor(kBlue);
-   graph_LCurve_TikhonovLCurve->DrawClone("ALW");
-   Double_t X_atMinCurvatue,Y_atMinCurvatue;
-   graph_LCurve_TikhonovLCurve->GetPoint
-      (iBest_TikhonovLCurve,X_atMinCurvatue,Y_atMinCurvatue);
-   TGraph *minimum_LCurve=new TGraph(1,&X_atMinCurvatue,&Y_atMinCurvatue);
-   minimum_LCurve->SetMarkerColor(kRed);
-   minimum_LCurve->SetMarkerStyle(20);
-   minimum_LCurve->SetMarkerSize(0.7);
-   minimum_LCurve->DrawClone("P");
-   TLegend *legend1=new TLegend(0.4,0.65,0.9,0.9,"Tikhonov, L-curve");
-   legend1->SetBorderSize(0);
-   legend1->SetFillStyle(0);
-   legend1->SetTextSize(0.045);
-   legend1->AddEntry(graph_LCurve_TikhonovLCurve,"L-curve","l");
-   
-   legend1->AddEntry(minimum_LCurve,"largest curvature","p");
-   legend1->AddEntry
-      ((TObject *)0,TString::Format("at #tau=%.3g",tauBest_TikhonovLCurve),"");
-   legend1->AddEntry((TObject *)0,TString::Format("D.F.=%3g",DF_TikhonovLCurve),"");
-   legend1->Draw();
-   canvas1->cd(2);
-   gPad->SetLogy();
-   double yMin=1.0;
-   double yLine=10.;
-   double yMax=300.;
-   graph_logTauSURE_TikhonovSURE->GetYaxis()->SetRangeUser(yMin,yMax);
-   graph_logTauSURE_TikhonovSURE->GetXaxis()->SetRangeUser(-5.,-1.);
-   graph_logTauSURE_TikhonovSURE->SetTitle(";log_{10}(#tau)");
-   graph_logTauSURE_TikhonovSURE->SetLineColor(kBlue);
-   graph_logTauSURE_TikhonovSURE->DrawClone();
-   int n_scanSURE=graph_logTauSURE_TikhonovSURE->GetN();
-   double const *logTau_scanSURE=graph_logTauSURE_TikhonovSURE->GetX();
-   double const *DF_scanSURE=graph_dfChi2A_TikhonovSURE->GetX();
-   double const *chi2A_scanSURE=graph_dfChi2A_TikhonovSURE->GetY();
-
-
-   TGraph *logTauDF=new TGraph(n_scanSURE,logTau_scanSURE,DF_scanSURE);
-   TGraph *logTauChi2A=new TGraph(n_scanSURE,logTau_scanSURE,chi2A_scanSURE);
-   logTauDF->SetLineColor(kRed);
-   logTauDF->DrawClone("L");
-   logTauChi2A->SetLineColor(kMagenta);
-   logTauChi2A->DrawClone("L");
-   double tikhonov_logTauSURE=logTau_scanSURE[iBest_TikhonovSURE];
-   TLine *line=new TLine(tikhonov_logTauSURE,yLine,
-                         tikhonov_logTauSURE,yMax);
-   line->SetLineStyle(2);
-   line->Draw();
-   TLegend *legend2=new TLegend(0.25,0.2,0.9,0.45,"Tikhonov, ,minimize SURE");
-   legend2->SetBorderSize(0);
-   legend2->SetFillStyle(0);
-   legend2->SetTextSize(0.045);
-   legend2->AddEntry(graph_logTauSURE_TikhonovSURE,"SURE","l");
-   legend2->AddEntry(logTauDF,"D.F.","l");
-   legend2->AddEntry(logTauChi2A,"#chi^{2}_{A}","l");
-   legend2->AddEntry(line,TString::Format
-                     ("min(SURE) at #tau=%.3g",TMath::Power(10.,tikhonov_logTauSURE)),"l");
-   legend2->AddEntry((TObject *)0,TString::Format
-                     ("D.F.=%3g",DF_scanSURE[iBest_TikhonovSURE]),"");
-   legend2->Draw();
-   canvas1->cd(3);
-   gPad->SetLogy();
-   graph_SURE_IterativeSURE->GetYaxis()->SetRangeUser(yMin,yMax);
-   graph_SURE_IterativeSURE->GetXaxis()->SetRangeUser(-1.5,100.5);
-   graph_SURE_IterativeSURE->SetTitle(";iteration");
-   graph_SURE_IterativeSURE->SetMarkerColor(kBlue);
-   graph_SURE_IterativeSURE->SetMarkerStyle(20);
-   graph_SURE_IterativeSURE->SetMarkerSize(0.3);
-   graph_SURE_IterativeSURE->DrawClone("APW");
-   int n_scanSURE_iterative=graph_SURE_IterativeSURE->GetN();
-   double const *nIter_scanSURE_iterative=graph_SURE_IterativeSURE->GetX();
-   double const *DF_scanSURE_iterative=graph_DFdeviance_IterativeSURE->GetX();
-   double const *deviance_scanSURE=graph_DFdeviance_IterativeSURE->GetY();
-   TGraph *DF_iterative=new TGraph
-      (n_scanSURE_iterative,nIter_scanSURE_iterative,DF_scanSURE_iterative);
-   TGraph *deviance_iterative=new TGraph
-      (n_scanSURE_iterative,nIter_scanSURE_iterative,deviance_scanSURE);
-   DF_iterative->SetMarkerColor(kRed);
-   DF_iterative->SetMarkerStyle(24);
-   DF_iterative->SetMarkerSize(0.3);
-   DF_iterative->DrawClone("P");
-   deviance_iterative->SetMarkerColor(kMagenta);
-   deviance_iterative->SetMarkerStyle(22);
-   deviance_iterative->SetMarkerSize(0.3);
-   deviance_iterative->DrawClone("P");
-   TLine *line2=new TLine(iBest_IterativeSURE,yLine,iBest_IterativeSURE,yMax);
-   line2->SetLineStyle(2);
-   line2->Draw();
-   TLegend *legend3=new TLegend(0.25,0.2,0.9,0.45,"Iterative EM, minimize SURE");
-   legend3->SetBorderSize(0);
-   legend3->SetFillStyle(0);
-   legend3->SetTextSize(0.045);
-   legend3->AddEntry(graph_SURE_IterativeSURE,"SURE","p");
-   legend3->AddEntry(DF_iterative,"D.F.","p");
-   legend3->AddEntry(deviance_iterative,"deviance","p");
-   
-   legend3->AddEntry(line2,TString::Format
-                     ("min(SURE) at iteration=%d",iBest_IterativeSURE),"l");
-   legend3->AddEntry((TObject *)0,TString::Format
-                     ("D.F.=%3g",DF_scanSURE_iterative[iBest_IterativeSURE]),"");
-   legend3->Draw();
-
-   canvas1->SaveAs("testunfold2c_scan.eps");
-
-   TCanvas *canvas2=new TCanvas("coverage","",900,300);
-   canvas2->Divide(3,1);
-
-   hist_coverage_noRegularisation->SetLineColor(kBlue);
-   hist_coverage_noRegularisation->SetMarkerStyle(0);
-   canvas2->cd(1);
-
-   hist_coverage_TikhonovSURE->GetYaxis()->SetRangeUser(0.,1.);
-   hist_coverage_TikhonovSURE->SetTitle(";bin number;coverage");
-   hist_coverage_TikhonovSURE->SetFillStyle(1001);
-   hist_coverage_TikhonovSURE->SetFillColor(kCyan-10);
-   hist_coverage_TikhonovSURE->SetLineColor(kCyan);
-   hist_coverage_TikhonovSURE->DrawCopy("HIST");
-   hist_coverage_noRegularisation->DrawCopy("SAME HIST");
-
-   TLegend *legend21=new TLegend(0.2,0.78,0.6,0.93);
-   legend21->SetFillStyle(0);
-   legend21->SetBorderSize(0);
-   legend21->SetTextSize(0.06);
-
-   legend21->AddEntry(hist_coverage_noRegularisation,"no regularisation","l");
-   legend21->AddEntry(hist_coverage_TikhonovSURE,"Tikhonov + SURE","lf");
-   legend21->Draw();
-
-   canvas2->cd(2);
-   
-   hist_coverage_IterativeSURE->GetYaxis()->SetRangeUser(0.,1.);
-   hist_coverage_IterativeSURE->SetTitle(";bin number;coverage");
-   hist_coverage_IterativeSURE->SetFillStyle(1001);
-   hist_coverage_IterativeSURE->SetFillColor(kRed-10);
-   hist_coverage_IterativeSURE->SetLineColor(kRed);
-   hist_coverage_IterativeSURE->DrawCopy("HIST");
-   hist_coverage_noRegularisation->DrawCopy("SAME HIST");
-
-   TLegend *legend22=new TLegend(0.2,0.78,0.6,0.93);
-   legend22->SetFillStyle(0);
-   legend22->SetBorderSize(0);
-   legend22->SetTextSize(0.06);
-   legend22->AddEntry(hist_coverage_noRegularisation,"no regularisation","l");
-   legend22->AddEntry(hist_coverage_IterativeSURE,"Iterative + SURE","lf");
-   legend22->Draw();
-
-   canvas2->cd(3);
-
-   hist_coverage_IterativeFixed->GetYaxis()->SetRangeUser(0.,1.);
-   hist_coverage_IterativeFixed->SetTitle(";bin number;coverage");
-   hist_coverage_IterativeFixed->SetFillStyle(1001);
-   hist_coverage_IterativeFixed->SetFillColor(kGray);
-   hist_coverage_IterativeFixed->SetLineColor(kGray+3);
-   hist_coverage_IterativeFixed->DrawCopy("HIST");
-   hist_coverage_noRegularisation->DrawCopy("SAME HIST");
-
-   TLegend *legend23=new TLegend(0.2,0.78,0.6,0.93);
-   legend23->SetFillStyle(0);
-   legend23->SetBorderSize(0);
-   legend23->SetTextSize(0.06);
-   legend23->AddEntry(hist_coverage_noRegularisation,"no regularisation","l");
-   legend23->AddEntry(hist_coverage_IterativeFixed,"Iterative, N=4","lf");
-   legend23->Draw();
-
-
-
-   canvas2->SaveAs("testunfold2c_coverageFromData.eps");
    
    delete outputFile;
 
 }
 
-static TH1 *generatePoissonToy(TH1 *base,int ntoy) {
-   static TRandom *rnd=0;
-   if(!rnd) rnd=new TRandom3();
-   TH1 *r=(TH1 *)base->Clone(base->GetName()+TString::Format("_toy%d",ntoy));
-   for(int ibin=0;ibin<=r->GetNbinsX()+1;ibin++) {
-      double mu=r->GetBinContent(ibin);
-      double c=0.;
-      if(mu>0.) {
-         c=rnd->Poisson(mu);
-      }
-      r->SetBinContent(ibin,c);
-      r->SetBinError(ibin,TMath::Sqrt(c));
-   }
-   return r;
-}
-
-static void analyzeToy(TH1 const *hist_toy,
-                       TH1 const *hist_truth,
-                       TProfile *&prof_pull,TH1 *&hist_coverage,int nToyTotal) {
-   if(!prof_pull) {
-      TString namePull(hist_truth->GetName()+TString("_toyPull"));
-      TString nameCoverage(hist_truth->GetName()+TString("_toyCoverage"));
-      TString title=hist_truth->GetTitle();
-      TArrayD const *xBins=hist_toy->GetXaxis()->GetXbins();
-      if(xBins && (xBins->GetSize()>1)) {
-         prof_pull=new TProfile
-            (namePull,title,xBins->GetSize()-1,xBins->GetArray());
-         hist_coverage=new TH1D
-            (nameCoverage,title,xBins->GetSize()-1,xBins->GetArray());
-      } else {
-         int nBins=hist_toy->GetNbinsX();
-         double x0=hist_toy->GetXaxis()->GetXmin();
-         double x1=hist_toy->GetXaxis()->GetXmax();
-         prof_pull=new TProfile(namePull,title,nBins,x0,x1);
-         hist_coverage=new TH1D(nameCoverage,title,nBins,x0,x1);
-      }
-   }
-   
-   for(int i=0;i<=hist_toy->GetNbinsX()+1;i++) {
-      double pullI=(hist_toy->GetBinContent(i)-hist_truth->GetBinContent(i))/
-         hist_truth->GetBinError(i);
-      prof_pull->Fill
-         (hist_toy->GetBinCenter(i),pullI);
-      if(TMath::Abs(pullI)<1.) {
-         hist_coverage->Fill(hist_toy->GetBinCenter(i),1./nToyTotal);
-      }
-   }
-}
